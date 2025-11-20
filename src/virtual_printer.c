@@ -1,64 +1,60 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <windows.h>
-#include <winspool.h>
 
-// Estrutura para gerenciar a impressora virtual
-typedef struct {
-    char virtual_printer_name[256];
-    char real_printer_name[256];
-    HANDLE hRealPrinter;
-} PrinterRedirect;
-
-// Função para instalar a impressora virtual
-BOOL install_virtual_printer() {
-    PRINTER_INFO_2 printerInfo;
-    memset(&printerInfo, 0, sizeof(printerInfo));
+HANDLE create_virtual_port() {
+    // Cria um pipe nomeado para simular a porta da impressora
+    HANDLE hPipe = CreateNamedPipe(
+        "\\\\.\\pipe\\VirtualPrinterPort",
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+        PIPE_UNLIMITED_INSTANCES,
+        8192,  // Buffer de saída
+        8192,  // Buffer de entrada  
+        0,     // Timeout padrão
+        NULL   // Segurança
+    );
     
-    printerInfo.pPrinterName = "Zebra Virtual (Redirect to Elgin)";
-    printerInfo.pPortName = "VIRTUAL_USB:";
-    printerInfo.pDriverName = "ZDesigner GK420t";
-    printerInfo.pPrintProcessor = "WinPrint";
-    printerInfo.pDatatype = "RAW";
-    printerInfo.Attributes = PRINTER_ATTRIBUTE_DIRECT;
-    
-    HANDLE hPrinter;
-    if (!AddPrinter(NULL, 2, (LPBYTE)&printerInfo)) {
-        printf("Erro instalando impressora virtual: %d\n", GetLastError());
-        return FALSE;
+    if (hPipe == INVALID_HANDLE_VALUE) {
+        printf("Erro criando porta virtual: %d\n", GetLastError());
+        return INVALID_HANDLE_VALUE;
     }
     
-    printf("Impressora virtual instalada: %s\n", printerInfo.pPrinterName);
-    ClosePrinter(hPrinter);
-    return TRUE;
+    printf("Porta virtual criada: \\\\.\\pipe\\VirtualPrinterPort\n");
+    return hPipe;
 }
 
-// Função para monitorar jobs de impressão
-DWORD WINAPI monitor_print_jobs(LPVOID lpParam) {
-    PrinterRedirect* redirect = (PrinterRedirect*)lpParam;
+DWORD WINAPI virtual_port_monitor(LPVOID lpParam) {
+    HANDLE hPipe = create_virtual_port();
+    
+    if (hPipe == INVALID_HANDLE_VALUE) {
+        return 1;
+    }
+    
+    printf("Monitor de porta virtual iniciado. Aguardando conexões...\n");
     
     while (1) {
-        Sleep(1000); // Verifica a cada segundo
-        
-        // Enumera printers para encontrar nossa virtual
-        DWORD needed, returned;
-        EnumPrinters(PRINTER_ENUM_LOCAL, NULL, 2, NULL, 0, &needed, &returned);
-        
-        if (needed > 0) {
-            BYTE* buffer = malloc(needed);
-            if (EnumPrinters(PRINTER_ENUM_LOCAL, NULL, 2, buffer, needed, &needed, &returned)) {
-                PRINTER_INFO_2* printers = (PRINTER_INFO_2*)buffer;
+        // Aguarda conexão
+        if (ConnectNamedPipe(hPipe, NULL)) {
+            printf("Cliente conectado à porta virtual\n");
+            
+            // Lê dados do pipe
+            BYTE buffer[8192];
+            DWORD bytesRead;
+            
+            if (ReadFile(hPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
+                buffer[bytesRead] = '\0';
+                printf("Dados recebidos (%d bytes): %s\n", bytesRead, buffer);
                 
-                for (DWORD i = 0; i < returned; i++) {
-                    if (strstr(printers[i].pPrinterName, "Zebra Virtual")) {
-                        // Monitora jobs desta impressora
-                        monitor_printer_jobs(printers[i].pPrinterName, redirect);
-                    }
-                }
+                // Aqui você chamaria o conversor ZPL -> Elgin
+                // e enviaria para a impressora real
             }
-            free(buffer);
+            
+            DisconnectNamedPipe(hPipe);
         }
+        
+        Sleep(100);
     }
+    
+    CloseHandle(hPipe);
     return 0;
 }
