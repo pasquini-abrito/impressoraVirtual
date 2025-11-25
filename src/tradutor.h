@@ -14,6 +14,7 @@
 #define ZPL_END_FORMAT "^XZ"
 #define ZPL_FIELD_SEPARATOR "^FS"
 #define ZPL_COMMENT "^FX"
+#define ZPL_QUANTITY_COPY "^PQ"
 
 // Comandos de configuração de etiqueta
 #define ZPL_LABEL_HOME "^LH"        // ^LHx,y - Posição inicial da etiqueta
